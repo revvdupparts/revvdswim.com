@@ -50,6 +50,11 @@
   .pill{display:inline-flex;padding:13px 26px;border-radius:999px;background:#f4f4f4;color:#000;font:600 14px Inter}
   .help a{color:#fff;text-decoration:underline;text-underline-offset:3px}
   .hp{position:absolute;left:-9999px}
+  .lines{display:grid!important;gap:10px}
+  .lines div{display:flex;justify-content:space-between;gap:12px}
+  .lines .q{color:var(--muted)}
+  .edit{color:var(--muted);font-size:13px;text-decoration:underline;text-underline-offset:3px;justify-self:start}
+  .edit:hover{color:#fff}
   @media (max-width:820px){.layout,.row,.row3{grid-template-columns:1fr}}
 </style>
 </head>
@@ -70,6 +75,14 @@
     <a href="index.html" class="pill">Back to shop</a>
   </section>
 
+  <!-- Shown when the cart is empty -->
+  <section class="done box" id="emptyCart">
+    <div class="mono">Checkout</div>
+    <h1 class="wide">Your cart is empty.</h1>
+    <p>Add some decals to your cart, then come back here to place your order.</p>
+    <a href="index.html#shop" class="pill">Go to shop</a>
+  </section>
+
   <section id="formArea">
     <div class="mono">Checkout</div>
     <h1 class="wide">Place your order.</h1>
@@ -82,24 +95,13 @@
       <input type="hidden" name="_subject" id="subj" value="New Revvd. order">
       <input type="hidden" name="_template" value="table">
       <input type="hidden" name="_next" value="https://revvdswim.com/order.html?sent=1">
+      <input type="hidden" name="Items" id="itemsField">
       <input type="hidden" name="Order total" id="totalField">
       <input type="text" name="_honey" class="hp" tabindex="-1" autocomplete="off">
 
       <div class="layout">
         <div class="box">
-          <h2>Your item</h2>
-          <div class="row">
-            <div>
-              <label for="item">Product</label>
-              <select id="item" name="Product" required></select>
-            </div>
-            <div>
-              <label for="qty">Quantity</label>
-              <select id="qty" name="Quantity" required></select>
-            </div>
-          </div>
-
-          <h2 style="margin-top:32px">Shipping info</h2>
+          <h2>Shipping info</h2>
           <div class="row">
             <div><label for="name">Full name</label><input id="name" name="Name" autocomplete="name" required maxlength="80"></div>
             <div><label for="email">Email</label><input id="email" type="email" name="email" autocomplete="email" required maxlength="120"></div>
@@ -120,8 +122,8 @@
         <div class="box">
           <h2>Summary</h2>
           <div class="sum">
-            <div><span id="sumItem">—</span><span id="sumEach"></span></div>
-            <div><span>Quantity</span><span id="sumQty">1</span></div>
+            <div id="sumLines" class="lines"></div>
+            <a href="index.html?cart=1" class="edit">Edit cart</a>
             <div><span>Shipping</span><span>Confirmed by email</span></div>
             <div class="total"><span>Subtotal</span><span id="sumTotal">$0</span></div>
           </div>
@@ -147,42 +149,49 @@ const ITEMS = [
 
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
+const CART_KEY = "revvd_cart", MAX_QTY = 20;
+
+function show(id){ ["done","emptyCart","formArea"].forEach(s => $(s).style.display = s === id ? "block" : "none"); }
 
 if (params.get("sent") === "1") {
-  $("formArea").style.display = "none";
-  $("done").style.display = "block";
+  /* Order went through: empty the cart */
+  try { localStorage.removeItem(CART_KEY); } catch (e) {}
+  show("done");
 } else {
-  /* Build the dropdowns with DOM methods (no innerHTML) so nothing in the URL can inject code */
-  ITEMS.forEach((it, i) => {
-    const o = document.createElement("option");
-    o.value = it.name;
-    o.textContent = `${it.name} — $${it.price}`;
-    $("item").appendChild(o);
-  });
-  for (let n = 1; n <= 10; n++) {
-    const o = document.createElement("option");
-    o.value = n; o.textContent = n;
-    $("qty").appendChild(o);
-  }
+  /* Read the cart; only real products count, and prices come from ITEMS, never from storage */
+  let cart = [];
+  try {
+    const c = JSON.parse(localStorage.getItem(CART_KEY) || "[]");
+    if (Array.isArray(c)) cart = c.filter(l => l && ITEMS.some(it => it.name === l.name) && Number.isInteger(l.qty) && l.qty > 0);
+  } catch (e) {}
 
-  /* Pre-select the item chosen on the shop page, only if it's a real product */
-  const wanted = params.get("item");
-  if (wanted && ITEMS.some(it => it.name === wanted)) $("item").value = wanted;
-
-  function update(){
-    const it = ITEMS.find(x => x.name === $("item").value) || ITEMS[0];
-    const q = parseInt($("qty").value, 10) || 1;
-    const total = it.price * q;
-    $("sumItem").textContent = it.name;
-    $("sumEach").textContent = `$${it.price}`;
-    $("sumQty").textContent = q;
+  if (!cart.length) {
+    show("emptyCart");
+  } else {
+    show("formArea");
+    let total = 0, count = 0;
+    const text = [];
+    cart.forEach(l => {
+      const it = ITEMS.find(x => x.name === l.name), q = Math.min(l.qty, MAX_QTY);
+      total += it.price * q; count += q;
+      text.push(`${q} x ${it.name} ($${it.price} each) = $${it.price * q}`);
+      /* Built with textContent so nothing stored in the browser can inject code */
+      const row = document.createElement("div");
+      const left = document.createElement("span");
+      left.textContent = it.name + " ";
+      const qs = document.createElement("span");
+      qs.className = "q"; qs.textContent = `×${q}`;
+      left.appendChild(qs);
+      const right = document.createElement("span");
+      right.textContent = `$${it.price * q}`;
+      row.append(left, right);
+      $("sumLines").appendChild(row);
+    });
     $("sumTotal").textContent = `$${total}`;
+    $("itemsField").value = text.join("\n");
     $("totalField").value = `$${total} (before shipping)`;
-    $("subj").value = `New Revvd. order: ${it.name} x${q}`;
+    $("subj").value = `New Revvd. order: ${count} item${count > 1 ? "s" : ""}, $${total}`;
   }
-  $("item").addEventListener("change", update);
-  $("qty").addEventListener("change", update);
-  update();
 }
 </script>
 </body>
