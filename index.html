@@ -294,8 +294,14 @@
       <a href="#faq">FAQ</a>
       <a href="mailto:revvdupparts@gmail.com">Contact</a>
     </div>
-    <a href="#shop" class="pill">Shop Now</a>
-    <button class="menu-btn" id="menuBtn" aria-label="Menu">☰</button>
+    <div class="nav-right">
+      <a href="#shop" class="pill">Shop Now</a>
+      <button class="cart-btn" id="cartBtn" aria-label="Open cart">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 7h12l-1 13H7L6 7z"/><path d="M9 7a3 3 0 0 1 6 0"/></svg>
+        <span class="cart-count" id="cartCount"></span>
+      </button>
+      <button class="menu-btn" id="menuBtn" aria-label="Menu">☰</button>
+    </div>
   </nav>
 </header>
 
@@ -376,7 +382,7 @@
     </div>
     <div class="perk reveal">
       <div class="ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></div>
-      <h5>Secure checkout</h5><p>Payments handled by Stripe. Cards, Apple Pay and Google Pay.</p>
+      <h5>Easy ordering</h5><p>Add to cart, check out, and we'll email you a secure payment link.</p>
     </div>
   </div>
 </section>
@@ -446,13 +452,25 @@
   </div>
 </footer>
 
+<!-- ===== CART ===== -->
+<div class="overlay" id="overlay"></div>
+<aside class="drawer" id="drawer" aria-label="Cart" aria-hidden="true">
+  <div class="drawer-head"><h3>Your cart</h3><button class="x" id="closeCart" aria-label="Close cart">×</button></div>
+  <div class="items" id="cartItems"></div>
+  <div class="drawer-foot">
+    <div class="tot"><span>Subtotal</span><span id="cartTotal">$0</span></div>
+    <small>Shipping is confirmed by email after you order.</small>
+    <a href="order.html" class="btn btn-light" id="checkoutBtn">Checkout <span class="arr">→</span></a>
+    <button class="btn btn-ghost" id="keepShopping" style="margin-top:10px">Keep shopping</button>
+  </div>
+</aside>
+
 <script>
 /* ===========================================================
    EDIT YOUR PRODUCTS HERE
    - images: photos in the "images" folder in your repo
-   - links:  paste your Stripe Payment Link for each option.
-             While a link still contains YOUR_LINK, "Buy now"
-             goes to the order form (order.html) instead.
+   - prices: if you change a price here, change it in order.html too
+   - links:  not used by the cart yet (kept for later)
    =========================================================== */
 const products = [
   { type:"decal", name:"Revvd. Logo Decal", tag:"Best Seller",
@@ -487,23 +505,72 @@ const products = [
 ];
 
 const pick = (obj, key) => obj ? (obj[key] ?? obj.default) : undefined;
-const ready = link => !!link && link.startsWith("https://buy.stripe.com/") && !link.includes("YOUR_LINK");
 const grid = document.getElementById('grid');
-
-/* Until a real checkout link is added, "Buy now" goes to order.html
-   with the chosen product already selected. */
-function setBuy(btn, link, item, price){
-  btn.innerHTML = 'Buy now <span class="arr">→</span>';
-  if (ready(link)) {
-    btn.href = link;
-    btn.target = "_blank";
-    btn.rel = "noopener";
-  } else {
-    btn.href = `order.html?item=${encodeURIComponent(item)}`;
-    btn.removeAttribute('target');
-  }
-}
+const $ = id => document.getElementById(id);
 const label = (p, v) => p.options.length > 1 ? `${p.name} - ${v}` : p.name;
+
+/* ---------- CART (saved in the visitor's browser) ---------- */
+const CART_KEY = "revvd_cart", MAX_QTY = 20;
+const catalog = {};            /* every sellable item: name -> price + image */
+products.forEach(p => {
+  if (p.available === false) return;
+  p.options.forEach(v => { catalog[label(p, v)] = { price: pick(p.prices, v), img: pick(p.images, v) }; });
+});
+function loadCart(){
+  try {
+    const c = JSON.parse(localStorage.getItem(CART_KEY) || "[]");
+    /* keep only real products; prices always come from this page, never from storage */
+    return Array.isArray(c) ? c.filter(l => l && catalog[l.name] && Number.isInteger(l.qty) && l.qty > 0)
+                                .map(l => ({ name: l.name, qty: Math.min(l.qty, MAX_QTY) })) : [];
+  } catch (e) { return []; }
+}
+function saveCart(){ try { localStorage.setItem(CART_KEY, JSON.stringify(cart)); } catch (e) {} }
+let cart = loadCart();
+
+function el(tag, cls, text){ const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+
+function drawCart(){
+  const box = $('cartItems'); box.replaceChildren();
+  let total = 0, count = 0;
+  if (!cart.length) box.appendChild(el('p', 'empty', 'Your cart is empty.'));
+  cart.forEach((l, i) => {
+    const it = catalog[l.name];
+    total += it.price * l.qty; count += l.qty;
+    const img = el('img'); img.src = it.img; img.alt = ''; img.onerror = () => { img.style.visibility = 'hidden'; };
+    const minus = el('button', null, '−'); minus.setAttribute('aria-label', 'Decrease quantity'); minus.onclick = () => changeQty(i, -1);
+    const plus = el('button', null, '+'); plus.setAttribute('aria-label', 'Increase quantity'); plus.onclick = () => changeQty(i, 1);
+    const q = el('div', 'qty'); q.append(minus, el('span', null, l.qty), plus);
+    const mid = el('div'); mid.append(el('div', 'nm', l.name), el('div', 'pr', `$${it.price} each`), q);
+    const rm = el('button', 'rm', 'Remove'); rm.onclick = () => { cart.splice(i, 1); saveCart(); drawCart(); };
+    const right = el('div'); right.style.textAlign = 'right'; right.append(el('div', 'lt', `$${it.price * l.qty}`), rm);
+    const row = el('div', 'line'); row.append(img, mid, right);
+    box.appendChild(row);
+  });
+  $('cartTotal').textContent = `$${total}`;
+  $('cartCount').textContent = count;
+  $('cartCount').style.display = count ? 'grid' : 'none';
+  $('checkoutBtn').classList.toggle('disabled', !count);
+}
+function changeQty(i, d){
+  cart[i].qty += d;
+  if (cart[i].qty < 1) cart.splice(i, 1); else cart[i].qty = Math.min(cart[i].qty, MAX_QTY);
+  saveCart(); drawCart();
+}
+function addToCart(name){
+  const l = cart.find(x => x.name === name);
+  if (l) l.qty = Math.min(l.qty + 1, MAX_QTY); else cart.push({ name, qty: 1 });
+  saveCart(); drawCart(); openCart(true);
+}
+function openCart(open){
+  $('drawer').classList.toggle('open', open);
+  $('overlay').classList.toggle('open', open);
+  $('drawer').setAttribute('aria-hidden', String(!open));
+}
+$('cartBtn').onclick = () => openCart(true);
+$('closeCart').onclick = $('overlay').onclick = $('keepShopping').onclick = () => openCart(false);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') openCart(false); });
+drawCart();
+if (new URLSearchParams(location.search).get('cart') === '1') openCart(true);
 
 function card(p, idx){
   const first = p.options[0], na = p.available === false;
@@ -523,7 +590,7 @@ function card(p, idx){
       <div class="opts">${p.options.map((o,j)=>`<button class="opt${j===0?" on":""}" data-v="${o}">${o}</button>`).join("")}</div>
       ${na
         ? `<button class="btn btn-ghost buy" disabled>Unavailable</button>`
-        : `<a class="btn btn-light buy"></a>`}
+        : `<button class="btn btn-light buy" type="button">Add to cart <span class="arr">+</span></button>`}
     </div>
   </article>`;
 }
@@ -532,15 +599,17 @@ function render(filter="all"){
   grid.innerHTML = products.map((p,i)=>({p,i}))
     .filter(({p}) => filter==="all" || p.type===filter)
     .map(({p,i}) => card(p,i)).join("");
-  grid.querySelectorAll('.card').forEach(c => {
-    const p = products[c.dataset.i];
-    const v = p.options[0];
-    if (p.available !== false) setBuy(c.querySelector('.buy'), pick(p.links, v), label(p, v), pick(p.prices, v));
-  });
 }
 render();
 
 grid.addEventListener('click', e => {
+  const add = e.target.closest('.buy');
+  if (add && !add.disabled) {
+    const c = add.closest('.card'), p = products[c.dataset.i];
+    const sel = c.querySelector('.opt.on');
+    addToCart(label(p, sel ? sel.dataset.v : p.options[0]));
+    return;
+  }
   const b = e.target.closest('.opt'); if(!b) return;
   const c = b.closest('.card'), p = products[c.dataset.i], v = b.dataset.v;
   c.querySelectorAll('.opt').forEach(x => x.classList.toggle('on', x===b));
@@ -552,7 +621,6 @@ grid.addEventListener('click', e => {
   if (p.available === false) return;
   c.querySelector('.price').textContent = '$' + pick(p.prices, v);
   c.querySelector('.save').textContent = (p.save && p.save[v]) || '';
-  setBuy(c.querySelector('.buy'), pick(p.links, v), label(p, v), pick(p.prices, v));
 });
 
 function setFilter(f){
