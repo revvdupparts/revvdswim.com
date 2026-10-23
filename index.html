@@ -423,7 +423,7 @@
    - images: photos in the "images" folder in your repo
    - links:  paste your Stripe Payment Link for each option.
              While a link still contains YOUR_LINK, "Buy now"
-             opens an email order instead.
+             goes to the order form (order.html) instead.
    =========================================================== */
 const products = [
   { type:"decal", name:"Revvd. Logo Decal", tag:"Best Seller",
@@ -461,9 +461,8 @@ const pick = (obj, key) => obj ? (obj[key] ?? obj.default) : undefined;
 const ready = link => !!link && link.startsWith("https://buy.stripe.com/") && !link.includes("YOUR_LINK");
 const grid = document.getElementById('grid');
 
-/* Until a real checkout link is added, "Buy now" opens an email order
-   to revvdupparts@gmail.com with the product, option and price filled in. */
-const ORDER_EMAIL = "revvdupparts@gmail.com";
+/* Until a real checkout link is added, "Buy now" goes to order.html
+   with the chosen product already selected. */
 function setBuy(btn, link, item, price){
   btn.innerHTML = 'Buy now <span class="arr">→</span>';
   if (ready(link)) {
@@ -471,9 +470,7 @@ function setBuy(btn, link, item, price){
     btn.target = "_blank";
     btn.rel = "noopener";
   } else {
-    const subject = `Order: ${item} ($${price})`;
-    const body = `Hi! I'd like to order:\n\n${item} - $${price}\nQuantity: 1\n\nShipping name:\nShipping address:\n`;
-    btn.href = `mailto:${ORDER_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    btn.href = `order.html?item=${encodeURIComponent(item)}`;
     btn.removeAttribute('target');
   }
 }
